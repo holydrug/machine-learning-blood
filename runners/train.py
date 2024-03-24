@@ -1,4 +1,6 @@
 import os
+
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -28,15 +30,16 @@ def detect_circles(image):
         maxRadius=52
     )
     if circles is not None:
-        circles = circles[0]  # Извлечение списка кругов из возвращаемого значения
-        # Преобразование координат центра круга и его радиуса к целым числам
-        circles = [[int(coord) for coord in circle] for circle in circles]
-        # Проверка каждого круга на целочисленные координаты и положительный радиус
-        for circle in circles:
-            if not all(isinstance(coord, int) for coord in circle[:2]) or not isinstance(circle[2], int) or circle[2] <= 0:
-                print("Invalid circle parameters detected:", circle)
-                raise ValueError("Invalid circle parameters detected.")
-    return circles if circles is not None else []  # Вернуть пустой список, если круги не обнаружены
+        circles = np.round(circles[0, :]).astype("int")
+        # Сортируем круги по горизонтальной координате x (слева направо)
+        circles = sorted(circles, key=lambda x: x[0])
+        # Проверка, что найдено ровно 4 круга (опционально)
+        if len(circles) != 4:
+            raise ValueError(f"Expected 4 circles, but found {len(circles)}.")
+        return circles
+    else:
+        raise ValueError("No circles detected.")
+
 
 # Определение функции для преобразования изображения из формата OpenCV в формат PIL
 def cv2_to_pil(image):
@@ -83,19 +86,23 @@ class BloodCellDataset(Dataset):
     def __getitem__(self, index):
         image = cv2.imread(self.image_paths[index])
         circles = detect_circles(image)
-        crops = []
-        labels = []
-        for circle in circles:
-            x, y, r = circle
-            crop = image[y-r:y+r, x-r:x+r]
-            if self.transform:
-                crop = self.transform(crop)
-            crops.append(crop)
-            label = label_to_index.get(self.labels[index], -1)
-            if label == -1:
-                print(f"Warning: Unknown label '{self.labels[index]}' encountered.")
-            labels.append(label)
-        return torch.cat(crops), torch.tensor(labels).long()  # Преобразование меток в тип torch.LongTensor
+        if len(circles) != 4:
+            raise ValueError(f"Expected 4 circles, but found {len(circles)} in image {self.image_paths[index]}.")
+
+        # Получаем индекс круга из четырех возможных, основываясь на index
+        circle_index = index % 4  # Предполагая, что labels и image_paths синхронизированы
+        circle = circles[circle_index]
+        x, y, r = circle
+        crop = image[y-r:y+r, x-r:x+r]
+        label = self.labels[index // 4]  # Получаем метку для текущего круга
+
+        label_index = torch.tensor(label_to_index[label], dtype=torch.long)
+        # Преобразование круга крови в изображение PIL и применение трансформаций
+        if self.transform:
+            crop = self.transform(crop)
+
+        # Возвращаем обрезанное изображение круга и соответствующую метку
+        return crop, label_index
 
 # Обновленная функция train_model
 def train_model(model, dataloader, criterion, optimizer, num_epochs=25):
@@ -103,8 +110,9 @@ def train_model(model, dataloader, criterion, optimizer, num_epochs=25):
         for inputs, labels in dataloader:
             optimizer.zero_grad()
             outputs = model(inputs.float())  # Преобразование входных данных модели в тип torch.FloatTensor
+            labels = labels.squeeze().long() # Теперь labels должен быть тензором, а не кортежем
             num_classes = len(BLOOD_TYPES)
-            labels_one_hot = one_hot_encode(labels.squeeze().long(), num_classes)
+            labels_one_hot = one_hot_encode(labels, num_classes)
             loss = criterion(outputs, labels_one_hot.float())
             loss.backward()
             optimizer.step()
