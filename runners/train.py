@@ -62,15 +62,13 @@ def create_dataset(image_dir):
             image_path = os.path.join(image_dir, image_name)
             image = cv2.imread(image_path)
             circles = detect_circles(image)
-            if circles is not None and len(circles) > 0:
-                if len(circles) == len(BLOOD_TYPES):
-                    for i, (x, y, r) in enumerate(circles):
-                        circle_label = BLOOD_TYPES[i]
-                        image_paths.append(image_path)
-                        labels.append(circle_label)
-                else:
-                    print(f"Warning: Detected {len(circles)} circles, which does not match the number of blood types. Ignoring this image.")
-    print(f"Found {len(image_paths)} images in the dataset.")
+            if circles is not None and len(circles) == 4:  # Убедимся, что обнаружено ровно 4 круга
+                for circle_label in BLOOD_TYPES:
+                    image_paths.append(image_path)
+                    labels.append(circle_label)
+            else:
+                print(f"Warning: Expected 4 circles, but found {len(circles)}. Ignoring this image.")
+    print(f"Found {len(image_paths) // 4} complete images in the dataset.")
     return image_paths, labels
 
 # Обновленная функция для создания датасета
@@ -78,52 +76,51 @@ class BloodCellDataset(Dataset):
     def __init__(self, image_paths, labels, transform=None):
         self.image_paths = image_paths
         self.labels = labels
-        self.transform = transform
+        self.transform = transform  # Эта трансформация теперь будет применяться к каждому кругу
 
     def __len__(self):
         return len(self.image_paths)
 
     def __getitem__(self, index):
-        image = cv2.imread(self.image_paths[index])
+        image_path = self.image_paths[index // 4]
+        image = cv2.imread(image_path)
         circles = detect_circles(image)
-        if len(circles) != 4:
-            raise ValueError(f"Expected 4 circles, but found {len(circles)} in image {self.image_paths[index]}.")
 
-        # Получаем индекс круга из четырех возможных, основываясь на index
-        circle_index = index % 4  # Предполагая, что labels и image_paths синхронизированы
-        circle = circles[circle_index]
-        x, y, r = circle
+        circle_index = index % 4
+        x, y, r = circles[circle_index]
         crop = image[y-r:y+r, x-r:x+r]
-        label = self.labels[index // 4]  # Получаем метку для текущего круга
 
-        label_index = torch.tensor(label_to_index[label], dtype=torch.long)
-        # Преобразование круга крови в изображение PIL и применение трансформаций
         if self.transform:
             crop = self.transform(crop)
 
-        # Возвращаем обрезанное изображение круга и соответствующую метку
+        label = self.labels[index]
+        label_index = torch.tensor(label_to_index[label], dtype=torch.long)
+
         return crop, label_index
+
+# Трансформации изображения
+transform = transforms.Compose([
+    transforms.Lambda(lambda x: cv2.resize(x, (IMAGE_HEIGHT, IMAGE_WIDTH))),  # Масштабирование изображения
+    transforms.Lambda(lambda x: Image.fromarray(x)),  # Преобразование в PIL для дальнейших трансформаций
+    transforms.ToTensor(),  # Преобразование в тензор PyTorch
+])
 
 # Обновленная функция train_model
 def train_model(model, dataloader, criterion, optimizer, num_epochs=25):
     for epoch in range(num_epochs):
         for inputs, labels in dataloader:
             optimizer.zero_grad()
-            outputs = model(inputs.float())  # Преобразование входных данных модели в тип torch.FloatTensor
-            labels = labels.squeeze().long() # Теперь labels должен быть тензором, а не кортежем
-            num_classes = len(BLOOD_TYPES)
-            labels_one_hot = one_hot_encode(labels, num_classes)
-            loss = criterion(outputs, labels_one_hot.float())
+
+            # Убедитесь, что inputs имеют размерность [batch_size * 4, C, H, W]
+            outputs = model(inputs.float())
+            # labels будут иметь размерность [batch_size * 4]
+            loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
+
         print(f'Epoch {epoch+1}/{num_epochs}, Loss: {loss.item()}')
 
-# Трансформации изображения
-transform = transforms.Compose([
-    transforms.Lambda(cv2_to_pil),  # Преобразование изображения в формат PIL
-    transforms.Resize((IMAGE_HEIGHT, IMAGE_WIDTH)),
-    transforms.ToTensor(),
-])
+
 
 # Создание модели
 model = SimpleCNN()
