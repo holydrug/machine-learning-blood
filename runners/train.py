@@ -15,10 +15,26 @@ from entities.simple_cnn import SimpleCNN  # Убедитесь, что SimpleCN
 
 label_to_index = {label: i for i, label in enumerate(BLOOD_TYPES)}
 
+def resize_image(image, target_size):
+    # Вычисляем коэффициент масштабирования, сохраняя пропорции изображения
+    h, w = image.shape[:2]
+    scale = target_size / max(h, w)
+
+    # Масштабируем изображение
+    resized_image = cv2.resize(image, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+
+    # Возвращаем масштабированное изображение
+    return resized_image
+
 # Определение функции для обнаружения кругов на изображении
-def detect_circles(image):
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+def detect_circles(image, target_size=500):
+    resized_image = resize_image(image, target_size)
+
+    # Преобразуем изображение в оттенки серого и применяем размытие
+    gray = cv2.cvtColor(resized_image, cv2.COLOR_BGR2GRAY)
     gray_blurred = cv2.GaussianBlur(gray, (9, 9), 2)
+
+    # Используйте алгоритм HoughCircles для обнаружения кругов
     circles = cv2.HoughCircles(
         gray_blurred,
         cv2.HOUGH_GRADIENT,
@@ -26,7 +42,7 @@ def detect_circles(image):
         minDist=20,
         param1=50,
         param2=30,
-        minRadius=20,
+        minRadius=30,
         maxRadius=52
     )
     if circles is not None:
