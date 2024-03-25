@@ -41,7 +41,7 @@ def predict_blood_type(image_path):
 # Пример использования
 if __name__ == "__main__":
     predictions = []
-    for _ in range(5000):
+    for _ in range(500):
         predicted_blood_type = predict_blood_type(PREDICT_IMAGE_PATH)
         predictions.append(predicted_blood_type)
 

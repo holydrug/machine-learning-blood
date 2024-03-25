@@ -14,7 +14,7 @@ MAX_RADIUS = 0
 # Путь к сохраненной модели
 MODEL_PATH = '../target/saved_models/model.pth'
 TRAIN_IMAGE_PATH = '../target/photos'
-PREDICT_IMAGE_PATH = '../target/photos_to_predict/2.png'
+PREDICT_IMAGE_PATH = '../target/photos_to_predict/4.png'
 
 # Классы группы крови
 BLOOD_TYPES = ['A', 'B', 'D', 'Control']
